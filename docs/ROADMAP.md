@@ -1,6 +1,7 @@
 # Roadmap
 
-Six phases, roughly 27 sessions. A session is one focused half-day, solo,
+Six phases, roughly 27 sessions. Phases 0 and 1 run in a terminal because
+they are experiments; from Phase 2 onward this is a desktop app. A session is one focused half-day, solo,
 AI-assisted — relative weights, not promises. Each phase ends in a
 demonstrable **exit criterion**; a phase that can't meet its criterion is a
 signal to change the plan, not to push on.
@@ -32,7 +33,9 @@ week six. This is the equivalent of the old plan's "can I get notes into FL".
 
 ## Phase 1 — Retrieval that actually works  ·  4–6 sessions
 
-The research risk, isolated and measured. No UI — a script and a scoreboard.
+The research risk, isolated and measured. Still no interface — a script and
+a scoreboard. Phases 0 and 1 are the *only* headless ones; Phase 2 builds the
+real UI, and the product lives there.
 
 - [ ] Build the personal benchmark: pick ~50 presets across bass/lead/pad/
       pluck, listen to each, record yourself imitating it, label the pair.

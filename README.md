@@ -34,8 +34,31 @@ patch you can keep editing.
 Not a sample-based timbre transfer either: the output is a patch, so you stay
 in control of it in FL afterwards.
 
+## Phase 0 tools
+
+Two command-line spikes exist today. They are experiments, not the product —
+[Phase 2](docs/ROADMAP.md#phase-2--the-loop-that-makes-it-usable) is the
+desktop app. See the [Phase 0 runbook](docs/phase0.md) for the full walkthrough.
+
+```bash
+pip install -r requirements.txt
+export PYTHONPATH=src
+
+# 1. Read, edit and compare .vital presets
+python -m voxfl.preset inspect some.vital --match cutoff
+python -m voxfl.preset nudge some.vital settings.filter_1_cutoff +24 -o brighter.vital
+python -m voxfl.preset diff before.vital after.vital
+
+# 2. Drive Vital headlessly and render presets to audio
+python -m voxfl.vital probe -o phase0_out --preset some.vital
+python -m voxfl.vital batch "C:\presets" --limit 100 -o phase0_out
+```
+
+Run the tests with `python -m pytest tests/ -q`.
+
 ## Docs
 
+- [Phase 0 runbook](docs/phase0.md) — what to run first, and what it proves
 - [Roadmap](docs/ROADMAP.md) — six phases, exit criteria, risks
 - [Architecture](docs/architecture.md) — the retrieval pipeline and why it's shaped this way
 - [Decisions](docs/decisions.md) — decision log and what already exists

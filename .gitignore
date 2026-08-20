@@ -32,3 +32,7 @@ scratch/
 *.flac
 *.aiff
 *.flp.bak
+
+# Phase 0 output
+phase0_out/
+*.vstpreset

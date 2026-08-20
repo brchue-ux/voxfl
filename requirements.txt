@@ -1,0 +1,6 @@
+# Phase 0 spike
+dawdreamer>=0.9.0   # hosts Vital headlessly; ships prebuilt wheels
+numpy>=1.24
+
+# dev
+pytest>=7.0

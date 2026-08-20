@@ -117,7 +117,14 @@ the pattern is a starting point you'll edit anyway.
 
 ### 5. Output
 
-- Write a `.vital` preset file, load it in Vital inside FL.
+The app is standalone; the patch reaches FL Studio as a file. That's not a
+compromise — it's how every preset pack works, and it keeps the result yours
+to edit afterwards.
+
+- Write a `.vital` preset file **directly into Vital's user preset folder**, so
+  it simply appears in Vital's browser inside FL. No importing, no file
+  wrangling — one click from noise to loaded patch.
+- Also write a copy next to the project for keeping and sharing.
 - Write a `.mid` for the pattern.
 - Later, the direct FL routes: virtual MIDI via loopMIDI, and FL 21.1+'s
   Python piano-roll scripting.
