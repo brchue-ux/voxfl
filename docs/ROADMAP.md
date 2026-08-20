@@ -1,183 +1,166 @@
 # Roadmap
 
-From word-dump to finished product, in six phases. Each phase ends with a
-**exit criterion** — something demonstrable. If a phase cannot meet its exit
-criterion, that is the signal to change the plan, not to push on.
-
-Sizing is in *sessions* (one focused half-day, solo, AI-assisted). Treat them
-as relative weights, not promises.
+Six phases, roughly 27 sessions. A session is one focused half-day, solo,
+AI-assisted — relative weights, not promises. Each phase ends in a
+demonstrable **exit criterion**; a phase that can't meet its criterion is a
+signal to change the plan, not to push on.
 
 ---
 
-## Phase 0 — Kill the unknown  ·  1–2 sessions
+## Phase 0 — Prove the corpus loop  ·  1–2 sessions
 
-The README said the central open question was how content gets into FL Studio.
-Answer it with working code before designing anything else. No UI, no polish,
-one throwaway script.
+Everything depends on two mechanical abilities. Confirm both before designing
+anything else.
 
-- [ ] Record 4 bars of humming to a `.wav` from the command line
-- [ ] Run it through Basic Pitch, write a `.mid`
-- [ ] Drag that `.mid` into FL Studio, confirm notes land in the piano roll
-- [ ] Install loopMIDI, send a scripted note from Python, confirm FL receives
-      and records it
-- [ ] Check what your FL edition already ships (Newtone, Edison's convert-to-
-      score) and how good it is — you need to know your real baseline
-- [ ] Confirm your FL version supports piano-roll Python scripting (21.1+)
+- [ ] Install Vital; collect a few hundred free presets
+- [ ] Get DawDreamer hosting Vital headlessly: load a preset, add a MIDI note,
+      render to `.wav`
+- [ ] Open a `.vital` file, confirm it's readable JSON, find the filter cutoff
+- [ ] Change that value, write the file back, confirm Vital opens it and
+      sounds different
+- [ ] Batch-render 100 presets unattended; note how long it takes
 
-**Exit criterion:** a melody you hummed exists as editable notes in an FL
-piano roll, arrived at two different ways. Screenshot both.
+**Exit criterion:** you can render a preset library to audio from a script,
+and author a modified patch that Vital loads. Both verified by ear.
 
-**Why this first:** it converts the project's biggest risk into a known
-quantity in a day, and it produces something genuinely useful immediately —
-even the ugly script version is a working tool.
-
----
-
-## Phase 1 — Conversion engine + evaluation harness  ·  4–6 sessions
-
-The phase where the tool becomes *accurate*. No UI yet; this is a library plus
-a test rig. See [evaluation.md](evaluation.md) for the measurement design.
-
-- [ ] Record the reference set: 30–50 takes of your own humming across tempos,
-      registers, and levels of sloppiness
-- [ ] Hand-correct each into ground-truth MIDI (tedious, unavoidable, the
-      single highest-leverage asset in the project)
-- [ ] Build the metrics harness: onset F1, pitch accuracy, note-count delta
-- [ ] Measure Basic Pitch end-to-end as the baseline to beat
-- [ ] Implement the analysis/interpretation split from
-      [architecture.md](architecture.md)
-- [ ] Bake off pitch trackers on the reference set; pick by number, not vibe
-- [ ] Build the parameter sweep and tune interpretation defaults
-
-**Exit criterion:** the pipeline beats the Basic Pitch baseline on your own
-reference set, and a typical 4-bar take needs fewer than ~10 manual edits in
-FL to be usable. Set the hard numeric targets *after* seeing the baseline —
-inventing them now would be theatre.
+**Why first:** these are the two assumptions the entire architecture rests on.
+If DawDreamer can't host Vital reliably, or the JSON turns out to be opaque,
+the plan changes completely — and you want to know that on day one, not in
+week six. This is the equivalent of the old plan's "can I get notes into FL".
 
 ---
 
-## Phase 2 — The app  ·  6–8 sessions
+## Phase 1 — Retrieval that actually works  ·  4–6 sessions
 
-The first thing that is a product rather than a script.
+The research risk, isolated and measured. No UI — a script and a scoreboard.
 
-- [ ] Windows desktop shell, Python core behind a local socket
-- [ ] Pre-record controls: tempo, bars, key, count-in
-- [ ] Record button with metronome and level meter
-- [ ] Piano-roll preview of the result
-- [ ] Live interpretation controls — quantize strength, scale snap, sensitivity,
-      octave — all re-deriving instantly from the cached analysis
-- [ ] Take history: every recording kept, re-convertible, never lost
-- [ ] Output: Export `.mid`, auto-save to watched folder, Send to FL (Route B)
-- [ ] **FL Studio setup wizard** — detect/install loopMIDI, create the port,
-      walk through FL's MIDI settings with screenshots
-- [ ] Packaged installer, tested on a clean Windows machine
+- [ ] Build the personal benchmark: pick ~50 presets across bass/lead/pad/
+      pluck, listen to each, record yourself imitating it, label the pair.
+      Half a day of work, and it makes everything after it measurable
+- [ ] Render and embed the full corpus; tag roles from preset folder names
+- [ ] Baselines in order: random, hand-crafted timbral features with domain
+      normalisation, then CLAP
+- [ ] Add role filtering — searching only basses when you want a bass is a
+      large, nearly free accuracy win
+- [ ] Measure Recall@1, Recall@5, Recall@20 and MRR against the benchmark
 
-**Exit criterion:** from a cold start, idea in your head to notes in FL in
-under 60 seconds, without touching a terminal. Someone who is not you can
-install it and get a melody in without being told how.
+**Exit criterion:** the preset you were imitating lands in the top 5 more
+often than not, within its role. Set the harder targets after seeing the CLAP
+baseline rather than inventing them now.
 
-**Watch out:** the setup wizard is not polish, it is the product. A tool that
-needs a driver install and a DAW settings change has already lost most users
-before its first note.
-
----
-
-## Phase 3 — Beatbox → drums  ·  5–7 sessions
-
-Different problem: classification, not pitch. Onsets are easy, telling a kick
-from a snare is not — and everyone's mouth sounds are different, so a general
-model will always disappoint. Personalisation is not a feature here, it is the
-only way this works.
-
-- [ ] Onset detection tuned for percussive transients
-- [ ] Segment each onset into a short window; mel-spectrogram features
-- [ ] Ship a general classifier (kick / snare / closed hat / open hat / clap)
-- [ ] **Train your kit**: record ~8 examples of each of your own sounds, then
-      personalise via embedding + nearest-neighbour or a fine-tuned final layer
-- [ ] Flag inconsistent training takes rather than silently learning noise
-- [ ] Velocity from onset energy; preserve micro-timing via quantize strength
-- [ ] Map to GM drum notes and to FPC, with a user-editable mapping
-
-Prior research worth reading first: the Amateur Vocal Percussion dataset
-([arXiv:2009.11737](https://arxiv.org/pdf/2009.11737)) and user-personalised
-classification via deep embeddings
-([arXiv:2204.04646](https://arxiv.org/pdf/2204.04646)) — the second is
-precisely this problem.
-
-**Exit criterion:** after training on your own sounds, ≥90 % hit
-classification on a held-out set of your beatboxing.
+**If it fails:** this is the phase where the project can genuinely die. If
+CLAP plus normalisation plus role filtering can't beat chance meaningfully,
+the honest options are fine-tuning on VocalSketch (Phase 3's technique, pulled
+forward) or narrowing the product to word-search only and dropping the vocal
+query. Decide on evidence, not stubbornness.
 
 ---
 
-## Phase 4 — The AI editing layer  ·  4–5 sessions
+## Phase 2 — The loop that makes it usable  ·  5–7 sessions
 
-This is where an LLM belongs — **not** in transcription. Transcription is a
-signal-processing problem and a language model makes it worse. Editing a
-pattern is a language problem and a language model makes it better.
+Retrieval being merely decent is fine if correcting it is fast. This phase is
+where the product lives.
 
-Because everything is already the JSON IR, this phase is mostly prompt and
-schema work rather than new architecture.
+- [ ] Record button, role selector, instant results
+- [ ] Five candidates, auditioned on one keypress each, A/B against each other
+- [ ] Pick one → re-search around it, push away from the rejects
+- [ ] Word nudges: a mapping table for the terms that name real axes
+      (brighter, darker, more wobble, shorter, dirtier, wider, thinner) editing
+      the `.vital` JSON directly; vaguer phrasing moves the query vector instead
+- [ ] Every accepted patch written out and openable in FL
+- [ ] Undo, and a history of everything you've auditioned this session
 
-- [ ] Expose the IR to the model; constrain output to a validated edit schema
-- [ ] Support the commands that actually come up: "make the hats triplets",
-      "double-time this", "add a variation for bar 4", "harmonise a third
-      above", "make this fit F minor", "make it swing"
-- [ ] Preview-and-accept, never silent mutation; full undo
-- [ ] Non-LLM generators alongside it: humanisation, fills, simple variations —
-      cheaper, instant, and deterministic
+**Exit criterion:** mouth noise to a patch you're happy with, loaded in FL, in
+under two minutes, most of the time.
 
-**Exit criterion:** ten canned commands applied to a reference pattern produce
-musically correct results reliably, with schema validation catching bad output
-rather than corrupting patterns.
+**Watch out:** audition latency is the whole experience. If picking between
+candidates has any lag, the loop stops feeling like thinking and starts
+feeling like waiting. Pre-render candidates; never render on click.
 
 ---
 
-## Phase 5 — Deep FL integration and release  ·  4–6 sessions
+## Phase 3 — Personalisation  ·  3–5 sessions
 
-- [ ] Route C: bundled FL piano-roll Python script that places notes into the
-      open piano roll directly
-- [ ] First-run experience, auto-update, crash/error reporting
+The compounding advantage. It only has to understand one mouth.
+
+- [ ] Log every accepted pick as a training pair — this should already have
+      been happening since Phase 2
+- [ ] Fine-tune the query encoder on VocalSketch's synthesizer classes, then
+      on your own accumulated pairs
+- [ ] Guard against overfitting to a handful of sessions; keep the general
+      model as a fallback the user can switch back to
+
+**Exit criterion:** measurable Recall@5 improvement over the Phase 1 baseline,
+on imitations recorded on a **different day** from the training pairs. Same-day
+held-out data will flatter it badly — voice, mic position and room all drift.
+
+---
+
+## Phase 4 — Notes from the same take  ·  4–5 sessions
+
+- [ ] Split the recording into the timbre path and the pitch/rhythm path
+- [ ] Onsets, pitch contour, energy envelope → a pattern
+- [ ] Tuned deliberately forgiving: hard grid snap, hard scale snap, few
+      confident notes over many uncertain ones
+- [ ] Export `.mid` alongside the patch; later, loopMIDI and FL's piano-roll
+      scripting for direct delivery
+
+**Exit criterion:** one "bwaaow bwaow bwaow" produces a patch *and* a pattern
+that plays it, and the pattern needs under ~10 edits to be usable.
+
+**Sequenced late on purpose.** It's the least novel part, the part that's
+easiest to work around by hand, and it's the old plan's problem in a smaller,
+more forgiving form. The sound is the product.
+
+---
+
+## Phase 5 — Breadth and release  ·  5–7 sessions
+
+- [ ] Grow the corpus; make importing your own preset folders a one-click thing
+- [ ] Consider a second synth. Serum is the obvious candidate and the honest
+      compromise: hosted via DawDreamer, parameters nudgeable, presets not
+      authorable — a strictly weaker experience than Vital, worth it only if
+      the Serum library is where your sounds actually are
+- [ ] Installer, first-run setup, error reporting
 - [ ] Decide the shape: personal tool, free release, open source, or paid
-- [ ] If releasing: a landing page whose hero is a 20-second video of a hum
-      becoming a pattern. This category sells entirely on that demo.
 
-**Exit criterion:** v1.0 installer that a stranger can use end to end.
+**Exit criterion:** a v1.0 installer someone else can use end to end.
 
 ---
 
 ## Definition of done for v1.0
 
-A Windows app that records a vocal take, converts humming to a melody and
-beatboxing to a drum pattern, lets you fix it with sliders and plain English,
-and puts the result in FL Studio three different ways. Offline. No account.
+A Windows app where you make a noise, pick from five patches, say "brighter,
+shorter", and end up with a Vital preset and a MIDI pattern in FL Studio.
+Offline. No account.
 
 ## Later, explicitly not now
 
-- **Live / real-time mode.** Deferred on purpose — it is strictly harder and
-  strictly less accurate, and Phase 1's engine is the prerequisite for doing
-  it well. Revisit after v1.0.
-- **Piano mode** (the README's second idea). Real-time piano in, AI suggests
-  continuations. A different product sharing only the IR and output layers.
-  Do not let it dilute v1.
-- **Polyphony.** One voice, one note at a time. Chord detection from humming
-  is a research problem, not a feature.
-- **VST/plugin version.**
+- **Solving parameters from scratch** (the Genopatch approach). Raises the
+  ceiling past what the preset library contains. Revisit once retrieval and
+  the refinement loop are good, because it needs both as scaffolding.
+- **Drums and samples.** Vocal percussion → drum sample selection is the same
+  retrieval architecture pointed at a sample library, and a natural Phase 6.
+- **Real-time / live use.** Nothing here needs it.
+- **Timbre transfer** (neural vocal → target sound). Rejected on purpose: it
+  produces audio, not a patch, so you can't keep editing it. That defeats
+  the point.
 
 ## Risk register
 
 | Risk | Severity | Mitigation |
 | --- | --- | --- |
-| Crowded market — Dubler 2, DubBox, imitone, Waves OVox all exist | High | Compete on FL-native workflow and language editing, not on pitch tracking. Decide early whether this is a personal tool (where "it fits my workflow" is enough) or a product (where the wedge must be sharp). See [decisions.md](decisions.md#positioning) |
-| FL already ships audio→MIDI (Newtone, Edison) | High | Verify its real quality in Phase 0. Beat it on *workflow speed*, not transcription accuracy |
-| Your humming is out of tune and drifts | Medium | Scale snapping and quantize strength matter more than tracker accuracy. This is why interpretation is tunable and re-runnable |
-| loopMIDI driver install kills onboarding | Medium | Route A (plain `.mid`) always works with zero setup; wizard for Route B |
-| Scope creep into "AI writes my song" | Medium | It is a capture tool. Generation is Phase 4 editing only, on patterns you sang |
-| FL piano-roll scripting API can't do what's needed | Low | Route C is scheduled last precisely so nothing depends on it |
-| Solo-project motivation decay | Medium | Phase 0 delivers a usable thing in a day; every phase after ships something you personally use |
+| The cross-modal gap — your voice and a synth are just too different | High | The core bet. Attacked in order: domain normalisation, CLAP, VocalSketch fine-tuning, personalisation. Phase 1 exists to find out early, cheaply, with a number |
+| Retrieval ceiling — the sound isn't in the library | High | Nudging covers small gaps; a bigger corpus covers more; parameter solving is the eventual answer. Be honest in the UI when nothing scores well |
+| DawDreamer can't host Vital reliably | High | Phase 0, day one. Fallbacks: Vital's own CLI if any, or Surge XT, which ships Python bindings |
+| Audition latency kills the loop | Medium | Pre-render candidates, never render on click. Treat it as a hard requirement, not an optimisation |
+| Synplant 2 already does sample → patch | Medium | Different input (vocal imitation, not a real recording), different target (real third-party synths, not one built-in engine), and it has no iterative "no, more like this" loop |
+| Vocalising a sound is a skill you may not have | Medium | Picking from candidates works without it. Personalisation adapts to however you actually make noises rather than requiring you to be good at it |
+| Preset licensing for redistribution | Low | Only matters if you ship a bundled corpus. Index the user's own preset folders instead, and the question mostly evaporates |
+| Scope creep back into transcription | Low | The sound is the product. Notes are Phase 4 and deliberately crude |
 
-## Suggested order of attack
+## Start here
 
-Phase 0 this week. It is small, it retires the biggest unknown, and you end it
-with a working — if ugly — hum-to-FL pipeline. Everything after that is
-improvement on something real, which is a much better position than designing
-against an unknown.
+Phase 0, this week. Two questions, one afternoon: *can a script drive Vital,
+and is the preset really just JSON?* Answer those and the whole plan is either
+confirmed or usefully wrong.

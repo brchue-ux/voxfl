@@ -1,126 +1,138 @@
 # Decision log
 
-Short entries. Each records what was decided, why, and what would change it.
+---
+
+## D0 — This is a sound-design tool, not a transcription tool
+
+**Decided.** The first version of this plan assumed the job was getting your
+voice into FL as notes. That was wrong, and the correction reshapes everything.
+
+The real problem: you know what the sound in your head is, but you don't know
+which plugin makes it, which preset to start from, or which of two hundred
+knobs to turn. The learning curve of *finding and tuning a sound* is the
+bottleneck — not note entry.
+
+So your mouth noise is a **description of a timbre**, not audio to be
+transcribed. Nothing about your voice ends up in the track.
+
+**Everything downstream of this changed:** the target (a synth patch, not a
+MIDI file), the core technical risk (cross-modal retrieval, not pitch
+tracking), and the competitive landscape (Dubler and DubBox solve
+transcription, which is not this problem, so they stop being relevant).
 
 ---
 
-## D1 — Target FL Studio on Windows
+## D1 — Target Vital first
 
-**Decided.** FL Studio is the DAW in use; Windows is the platform. This fixes
-the MIDI plumbing (loopMIDI rather than macOS's built-in IAC Driver), the
-audio API (WASAPI), and packaging (PyInstaller → installer).
+**Decided.** Vital's presets are plain JSON text.
 
-**Reverses if:** the tool goes commercial, at which point macOS and generic
-MIDI matter more than FL-specific depth.
+This is not a small convenience — it decides how much control the program has:
 
----
+| Synth | What a program can do with a preset |
+| --- | --- |
+| **Vital** | Read every parameter by name, change it, and write a complete new patch as text |
+| Serum | Set exposed plugin parameters and save opaque state — but not read what a preset *means*, or author one. Also paid |
+| FL stock (Sytrus, Harmor) | Proprietary formats, and much smaller community preset libraries to search |
+| Surge XT | Fully open with official Python bindings — the easiest to automate, but the smallest EDM preset ecosystem |
 
-## D2 — Take-based conversion, not real-time
+Vital is also free, which matters twice over: no purchase to start, and a
+large body of freely available presets to index.
 
-**Decided.** You record a fixed number of bars, then it converts.
+**Known limitation:** Vital is not the industry default the way Serum is, so
+"the exact sound off that record" is less likely to be sitting in its library.
+If it turns out your sounds live in a Serum collection you already own,
+Phase 5 reconsiders — accepting the weaker, parameters-only experience.
 
-**Why:** accuracy and architecture, in that order.
-
-1. A real-time system must decide what each note is before hearing what
-   follows. A take-based one sees the whole phrase — it can infer key from all
-   the notes, fix a pitch by its neighbours, and fit the grid globally. It is
-   simply a better-informed problem.
-2. It permits the analysis/interpretation split (see
-   [architecture.md](architecture.md#the-one-idea-that-shapes-everything)),
-   which is what makes the parameters instant and the tuning measurable.
-3. It removes the latency requirement entirely — no ASIO, no buffer tuning, no
-   real-time-safe code.
-
-It also matches how loops actually get written: record four bars, fix them,
-loop them.
-
-**Cost:** it feels less magical than watching notes appear as you sing, and
-that magic is what sells competitors. Accepted.
-
-**Reverses if:** using it reveals that the break in flow between singing and
-seeing the result is worse than the accuracy gain.
+**Reverses if:** DawDreamer can't host Vital reliably. Fallback is Surge XT,
+which is the easiest of all to drive from Python.
 
 ---
 
-## D3 — Humming → melody before beatboxing → drums
+## D2 — Retrieve, then nudge
 
-**Decided.** Monophonic pitch tracking is the most solved problem in this
-space, with strong open-source components available immediately. It proves the
-entire pipeline — capture, analysis, interpretation, IR, FL output — end to
-end, and everything the drum path needs is built along the way.
+**Decided.** Find the nearest existing preset, then adjust its parameters —
+rather than solving synth parameters from scratch against your target.
 
----
+**Why:** it always returns a real patch built by a human who knew what they
+were doing, it's instant rather than an optimisation loop, and it degrades
+gracefully — a mediocre result still hands you five real starting points,
+which already beats scrolling a preset browser blind.
 
-## D4 — Ship the `.mid` file route first
-
-**Decided.** Exporting a MIDI file has zero technical risk, works on every FL
-edition, and is genuinely how a lot of producers prefer to work. The fancier
-routes (virtual MIDI port, FL piano-roll script) are enhancements layered on a
-tool that already works.
-
----
-
-## D5 — Python core, web UI
-
-**Decided.** The hard part of this project is audio ML, and that ecosystem is
-Python. The UI is a canvas piano roll, which the web platform does well. The
-two talk over a local socket so the frontend shell stays swappable.
-
-**Reverses if:** installer size or startup time becomes intolerable — the
-fallback is moving inference to ONNX-in-JS and shrinking the Python side.
+**Cost, stated plainly:** retrieval can only find what the library contains.
+Nothing in the corpus close to what you meant means no result close to what
+you meant. Nudging covers small gaps. Parameter solving is what raises that
+ceiling, and it's deliberately parked as post-v1 rather than dropped.
 
 ---
 
-## D6 — The LLM edits patterns; it does not transcribe them
+## D3 — Words and candidate-picking for refinement
 
-**Decided.** Transcription is signal processing. Feeding audio decisions to a
-language model adds cost, latency, and confident wrongness. But *editing* a
-pattern — "make the hats triplets", "harmonise a third above" — is genuinely a
-language problem, and the JSON IR makes it a validated, previewable,
-undoable operation.
+**Decided.** Two ways to say "nope, more like this":
 
-This is also the honest answer to "where's the AI?": in the part where natural
-language beats a menu, not sprinkled over the parts where DSP already wins.
+- **Words** for the axes that have names — brighter, more wobble, shorter,
+  dirtier. These map to real parameters and edit the JSON directly, so they're
+  predictable and reversible.
+- **Picking from five candidates** for everything else. Simpler than it
+  sounds, faster than it sounds, and it doubles as the source of
+  personalisation training data.
+
+Vocal re-imitation ("no, more like *this*" as another noise) was considered
+and deferred. It matches how you think, but interpreting a second noise as a
+*direction to move in* rather than a fresh query is substantially harder, and
+picking from candidates gets to the same place with far less machinery.
 
 ---
 
-## Positioning
+## D4 — Notes come from the same take, but late
 
-The idea is not novel, and pretending otherwise would produce a bad plan.
-What already exists:
+**Decided.** The same recording yields both the timbre query and a pitch/
+rhythm pattern — one take, two outputs.
 
-| Product | What it does | Overlap |
+Scheduled as Phase 4 because it's the least novel part of the system, the
+easiest to work around by hand, and much more forgiving here than in a
+transcription tool: you're expressing rough contour and rhythm, so snapping
+hard to grid and scale is correct rather than lossy.
+
+---
+
+## D5 — Personalisation is the compounding advantage
+
+**Decided.** Every accepted candidate is a labelled pair — *this noise* meant
+*that patch*. They accumulate from ordinary use at zero extra effort.
+
+The system never has to understand vocal imitation in general. It has to
+understand one person's mouth, which is a dramatically easier problem, and it
+gets better at it every session. Public datasets get it off the ground;
+personal data is what makes it good.
+
+---
+
+## Prior art
+
+The relevant landscape is completely different from the transcription one, and
+the competitors from that plan (Dubler 2, DubBox, imitone) are no longer
+competitors at all.
+
+| Product / work | What it does | Overlap |
 | --- | --- | --- |
-| [Dubler 2](https://vochlea.com/products/dubler2) (Vochlea) | Real-time voice → MIDI controller: sing, hum, whistle, beatbox | High — this is the commercial version of the voice mode |
-| [DubBox](https://vochlea.com/products/dubbox) (Vochlea) | Beatbox → drum loops, **trained on your own vocal sounds**, up to 8 per project, exports MIDI | High — this is Phase 3, already shipped by someone else |
-| [imitone](https://imitone.com/) | Voice → MIDI, real-time, pitch only | Medium |
-| Waves OVox | Voice-driven MIDI plus harmonising and arp effects | Medium |
-| [Basic Pitch](https://github.com/spotify/basic-pitch) (Spotify) | Free, Apache-2.0 audio → MIDI, offline | Component, not competitor — we use it |
-| FL's own Newtone / Edison | Audio → score, built into FL (edition-dependent) | The real baseline, already on your machine |
+| [Synplant 2 — Genopatch](https://soniccharge.com/synplant) | Give it an audio sample, its AI reverse-engineers synth settings that match. Also **PhenoType**, which generates patches from text prompts | Closest prior art by far |
+| Sononym | Sample browser with timbral similarity search | Same retrieval idea, pointed at samples rather than presets |
+| Splice / Ableton "similar sounds" | Find samples that sound like this one | Sample search, not patch selection |
+| [VocalSketch](https://github.com/interactiveaudiolab/VocalSketchDataSet) / [Vocal Imitation Set](https://github.com/interactiveaudiolab/VocalImitationSet) | Research datasets of vocal imitations, including synthesizer sounds | Training data, not a competitor |
+| [CLAP](https://github.com/LAION-AI/CLAP) | Shared audio + text embedding space | A component — probably the most important one |
+| [DawDreamer](https://github.com/DBraun/DawDreamer) | Host and render VST plugins from Python | The tool the corpus build depends on |
 
-Notably, DubBox's per-user vocal training is exactly the "personalise it to
-your own mouth sounds" idea that looked like the differentiator. It is not one.
+**Where the gap is.** Synplant takes a *real recording* of the sound you want
+— which assumes you already have one. The entire premise here is that you
+don't; all you have is a noise you can make with your mouth. It also targets
+only its own built-in engine, and offers no iterative "no, more like this"
+conversation.
 
-**What is actually left as a wedge:**
+Nothing found does: **vocal imitation → a patch in a real third-party synth →
+conversational refinement → a preset file you keep.** That's a genuine gap,
+and it's a more defensible one than the transcription plan had.
 
-1. **FL-native workflow.** Every competitor is a generic standalone that
-   speaks MIDI at your DAW from outside. A tool that places notes directly in
-   the FL piano roll, maps to FPC, and knows your project tempo is a different
-   experience. This is the strongest remaining gap.
-2. **Plain-English pattern editing.** Dubler is an *instrument* — you play it
-   and it obeys. Nothing in this list lets you say "double-time it and add a
-   fill in bar 4" to a pattern you just sang. That is a real hole.
-3. **Take-based accuracy.** Everything above is real-time, and therefore
-   working with strictly less information than a take-based converter.
-4. **It's yours.** Free, offline, no dongle, tuned on recordings of your own
-   voice, shaped around how you actually work.
-
-**The decision this forces, and it should be made early:** is voxfl a personal
-tool or a product? As a personal tool it is clearly worth building — points 3
-and 4 are enough, and the competitors' £150-and-a-USB-mic model is not
-something you need. As a commercial product it needs points 1 and 2 to be
-genuinely excellent, because it is entering a market with funded incumbents
-and an established demo language.
-
-Nothing in the roadmap changes for the first three phases either way. The
-answer is needed by Phase 5.
+**The catch:** it is genuine partly because it's hard. Synplant sidesteps the
+cross-modal gap entirely by demanding real audio. Taking a vocal query instead
+is the harder problem, and Phase 1 exists to find out early whether it's
+tractable.
