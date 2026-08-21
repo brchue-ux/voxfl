@@ -72,10 +72,14 @@ def _require_dawdreamer():
 #   + one trailing NUL byte
 #
 # (AudioProcessor::copyXmlToBinary/getXmlFromBinary — magic 0x21324356 LE is
-# the bytes "VC2!"). The <IComponent> element's text is Vital's JSON preset
-# (plus a trailing NUL), base64-encoded with JUCE's own nonstandard alphabet
-# and LSB-first bit packing (MemoryBlock::toBase64Encoding/fromBase64Encoding)
-# — not RFC 4648. <IComponent> is what drives the audio engine;
+# the bytes "VC2!"). The <IComponent> element's text, base64-encoded with
+# JUCE's own nonstandard alphabet and LSB-first bit packing
+# (MemoryBlock::toBase64Encoding/fromBase64Encoding — not RFC 4648), decodes
+# to Vital's JSON preset as a self-delimiting *prefix*, followed by a NUL
+# terminator and then JUCE's own plugin-side "JUCEPrivateData" bypass-state
+# chunk (confirmed against a real dumped default patch — not in any of the
+# primary sources this fix is otherwise grounded in, so parse this part
+# defensively). <IComponent> is what drives the audio engine;
 # <IEditController> is just a parameter mirror JUCE resets from <IComponent>
 # on load, so it can be carried through unmodified.
 
@@ -168,6 +172,38 @@ def _wrap_vst3_state(xml: str) -> bytes:
     return VC2_MAGIC + len(xml_bytes).to_bytes(4, "little") + xml_bytes + b"\x00"
 
 
+def _decode_icomponent(b64_text: str) -> tuple[dict[str, Any] | None, bytes]:
+    """Decode an <IComponent> element's base64 text into (payload, trailer).
+
+    The decoded bytes are Vital's JSON preset — a self-delimiting *prefix*,
+    not the whole thing — followed by a single NUL terminator and then
+    whatever JUCE's plugin-side VST3 wrapper appended after that: a
+    "JUCEPrivateData" bypass-state chunk, confirmed against a real dumped
+    default patch (not documented anywhere in the primary sources the
+    parse_state fix is otherwise grounded in). It's opaque to us, so it's
+    returned verbatim as ``trailer`` for rebuild_with() to carry through
+    unexamined rather than reconstructing or dropping it.
+    """
+    try:
+        decoded = juce_base64_decode(b64_text)
+    except RenderError:
+        return None, b""
+    try:
+        text = decoded.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        text = decoded.decode("utf-8", errors="ignore")
+    try:
+        candidate, consumed = json.JSONDecoder().raw_decode(text)
+    except json.JSONDecodeError:
+        return None, b""
+    if not isinstance(candidate, dict):
+        return None, b""
+    json_end = len(text[:consumed].encode("utf-8"))
+    rest = decoded[json_end:]
+    trailer = rest[1:] if rest[:1] == b"\x00" else rest
+    return candidate, trailer
+
+
 # --------------------------------------------------------------- state blob
 
 @dataclass
@@ -204,12 +240,15 @@ class StateBlob:
 
     def rebuild_with(self, preset: Preset) -> bytes:
         """Swap in a different preset's JSON, keeping everything else — the
-        IEditController block, XML formatting, VC2! frame — as captured."""
+        IEditController block, XML formatting, VC2! frame, and (see below)
+        JUCE's own trailer inside IComponent — as captured."""
         if self.xml is not None:
             match = _ICOMPONENT_RE.search(self.xml)
             if match is None:
                 raise RenderError("this state file's XML has no <IComponent> element to replace")
-            body = json.dumps(preset.data, separators=(",", ":")).encode("utf-8") + b"\x00"
+            _, trailer = _decode_icomponent(match.group(1))
+            new_json = json.dumps(preset.data, separators=(",", ":")).encode("utf-8")
+            body = new_json + b"\x00" + trailer
             new_b64 = juce_base64_encode(body)
             new_xml = self.xml[: match.start(1)] + new_b64 + self.xml[match.end(1) :]
             return _wrap_vst3_state(new_xml)
@@ -232,19 +271,7 @@ def parse_state(raw: bytes) -> StateBlob:
         match = _ICOMPONENT_RE.search(xml)
         if match is None:
             return StateBlob(raw, xml=xml)
-        payload = None
-        try:
-            decoded = juce_base64_decode(match.group(1))
-        except RenderError:
-            decoded = None
-        if decoded is not None:
-            body = decoded[:-1] if decoded.endswith(b"\x00") else decoded
-            try:
-                candidate = json.loads(body.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                candidate = None
-            if isinstance(candidate, dict):
-                payload = candidate
+        payload, _trailer = _decode_icomponent(match.group(1))
         return StateBlob(raw, xml=xml, payload=payload)
 
     return _parse_bare_json(raw)

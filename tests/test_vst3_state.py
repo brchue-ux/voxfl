@@ -20,6 +20,7 @@ import pytest
 from voxfl.render import (
     VC2_MAGIC,
     RenderError,
+    _ICOMPONENT_RE,
     _JUCE_B64_ALPHABET,
     juce_base64_decode,
     juce_base64_encode,
@@ -120,8 +121,8 @@ def _vc2_frame(xml: str) -> bytes:
     return VC2_MAGIC + struct.pack("<I", len(xml_bytes)) + xml_bytes + b"\x00"
 
 
-def _icomponent_xml(preset_json_bytes: bytes, iedit: str = "0.") -> str:
-    b64 = juce_base64_encode(preset_json_bytes + b"\x00")
+def _icomponent_xml(preset_json_bytes: bytes, iedit: str = "0.", trailer: bytes = b"") -> str:
+    b64 = juce_base64_encode(preset_json_bytes + b"\x00" + trailer)
     return (
         '<?xml version="1.0" encoding="UTF-8"?> <VST3PluginState>'
         f"<IComponent>{b64}</IComponent>"
@@ -136,6 +137,32 @@ def test_parse_state_unwraps_vc2_frame():
     assert blob.payload == json.loads(PRESET_JSON)
     assert blob.holds_vital_json
     assert blob.injectable
+
+
+def test_parse_state_ignores_juce_private_data_trailer_after_json():
+    # Confirmed against a real dumped default patch: JUCE's plugin-side VST3
+    # wrapper appends its own bypass-state chunk after Vital's own JSON+NUL,
+    # marked with the literal string "JUCEPrivateData" - undocumented in any
+    # of the primary sources this fix is otherwise grounded in. The JSON is
+    # a self-delimiting *prefix*; naively json.loads()-ing the whole decoded
+    # payload (as an earlier version of this fix did) raises "Extra data".
+    trailer = b"\x00" * 17 + b"JUCEPrivateData"
+    blob = parse_state(_vc2_frame(_icomponent_xml(PRESET_JSON, trailer=trailer)))
+    assert blob.payload == json.loads(PRESET_JSON)
+    assert blob.holds_vital_json
+
+
+def test_rebuild_with_preserves_icomponent_trailer_verbatim():
+    trailer = b"\x00" * 17 + b"JUCEPrivateData"
+    blob = parse_state(_vc2_frame(_icomponent_xml(PRESET_JSON, trailer=trailer)))
+
+    rebuilt = blob.rebuild_with(Preset.load(FIXTURES / "basic.vital"))
+    reparsed = parse_state(rebuilt)
+    assert reparsed.payload["preset_name"] == "Test Bass"
+
+    inner = _ICOMPONENT_RE.search(reparsed.xml).group(1)
+    decoded = juce_base64_decode(inner)
+    assert decoded.endswith(trailer)
 
 
 def test_parse_state_verifies_magic_bytes():
