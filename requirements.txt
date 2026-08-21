@@ -2,5 +2,10 @@
 dawdreamer>=0.9.0   # hosts Vital headlessly; ships prebuilt wheels
 numpy>=1.24
 
+# Phase 1 retrieval — random and hand-crafted-features baselines need only numpy.
+# CLAP is optional: pip install transformers torch (or -r requirements-clap.txt)
+# to run 'python -m voxfl.corpus embed --method clap' / the CLAP rows of
+# 'python -m voxfl.evaluate'. See docs/phase1.md.
+
 # dev
 pytest>=7.0

@@ -89,6 +89,27 @@ Separately, a plain polarity flip on a wavetable/LFO sample array (`-1 * x`) is 
 doesn't perceive absolute phase — so proving injected wavetable/LFO data actually changes the sound
 needs real waveshaping (e.g. gain-and-clip), not a sign flip.
 
+## Phase 1 retrieval pipeline and its optional CLAP dependency
+
+See `docs/phase1.md` for the full runbook. Two things not obvious from the
+code:
+
+- **CLAP's HF `transformers` API is a moving target.** `ClapProcessor.__call__`
+  renamed its audio kwarg from `audios` to `audio` between versions, and
+  `ClapModel.get_audio_features()`/`get_text_features()` return a plain
+  `(batch, dim)` tensor on older `transformers` but a
+  `BaseModelOutputWithPooling` (use `.pooler_output`) on newer ones —
+  `embed.py`'s `ClapEmbedder.embed_file()` and `_extract_embedding()` handle
+  both. If a future `transformers` upgrade breaks this again, the fix is
+  narrow: adjust those two spots, not the retrieval pipeline around them.
+- **Two `NormStats` must never be swapped.** `corpus.fit_feature_norm()` fits
+  on the *preset* corpus; `evaluate.features_query_norm()` fits on the
+  *vocal-query* corpus (currently just the benchmark's own recordings — a
+  rough estimate until Phase 3 accumulates more). Passing the wrong one into
+  `FeatureEmbedder` produces numbers that look fine and mean nothing —
+  architecture.md's domain-normalisation point depends on keeping these
+  separate.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

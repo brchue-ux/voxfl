@@ -1,0 +1,5 @@
+# Optional. Needed only for the CLAP baseline (Phase 1 baseline 3):
+#   pip install -r requirements-clap.txt
+# Downloads laion/clap-htsat-unfused (~2.5 GB) from HuggingFace on first use.
+transformers>=4.45
+torch>=2.0

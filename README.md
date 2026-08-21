@@ -18,7 +18,10 @@ and reshape it live — timing, note density, note length. See
 
 ## Status
 
-Design locked, not yet built. Phase 0 (prove the preset corpus loop) is next.
+Phase 0 (prove the preset corpus loop) and Phase 1 (retrieval harness,
+baselines, evaluation) are built. See [docs/phase1.md](docs/phase1.md) for
+what's measured and what's still the captain's own step: recording the
+personal benchmark and running it against the real preset corpus.
 
 ## Decisions made
 
@@ -40,24 +43,31 @@ patch you can keep editing.
 Not a sample-based timbre transfer either: the output is a patch, so you stay
 in control of it in FL afterwards.
 
-## Phase 0 tools
+## Phase 0 + Phase 1 tools
 
-Two command-line spikes exist today. They are experiments, not the product —
+Command-line only. They are experiments, not the product —
 [Phase 2](docs/ROADMAP.md#phase-2--the-loop-that-makes-it-usable) is the
-desktop app. See the [Phase 0 runbook](docs/phase0.md) for the full walkthrough.
+desktop app. See the [Phase 0](docs/phase0.md) and [Phase 1](docs/phase1.md)
+runbooks for the full walkthroughs.
 
 ```bash
 pip install -r requirements.txt
 export PYTHONPATH=src
 
-# 1. Read, edit and compare .vital presets
+# Phase 0: read, edit and compare .vital presets
 python -m voxfl.preset inspect some.vital --match cutoff
 python -m voxfl.preset nudge some.vital settings.filter_1_cutoff +24 -o brighter.vital
 python -m voxfl.preset diff before.vital after.vital
 
-# 2. Drive Vital headlessly and render presets to audio
+# Phase 0: drive Vital headlessly and render presets to audio
 python -m voxfl.vital probe -o phase0_out --preset some.vital
 python -m voxfl.vital batch "C:\presets" --limit 100 -o phase0_out
+
+# Phase 1: build the corpus manifest + embeddings, the benchmark, and evaluate
+python -m voxfl.corpus manifest corpus_wav/short corpus_wav/long -o corpus/manifest.jsonl
+python -m voxfl.benchmark scaffold corpus/manifest.jsonl -o benchmark
+python -m voxfl.benchmark ingest benchmark/manifest.jsonl benchmark/recordings
+python -m voxfl.evaluate corpus/manifest.jsonl benchmark/manifest.jsonl -o report.json
 ```
 
 Run the tests with `python -m pytest tests/ -q`.
@@ -65,6 +75,7 @@ Run the tests with `python -m pytest tests/ -q`.
 ## Docs
 
 - [Phase 0 runbook](docs/phase0.md) — what to run first, and what it proves
+- [Phase 1 runbook](docs/phase1.md) — the benchmark harness, corpus embedding, baselines and results
 - [Roadmap](docs/ROADMAP.md) — six phases, exit criteria, risks
 - [Architecture](docs/architecture.md) — the retrieval pipeline and why it's shaped this way
 - [Decisions](docs/decisions.md) — decision log and what already exists
