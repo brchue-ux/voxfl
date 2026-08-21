@@ -56,8 +56,12 @@ def cmd_probe(args: argparse.Namespace) -> int:
         print("  => route 'state' NOT available; fall back to 'params'")
     else:
         keys = ", ".join(list(blob.payload)[:8])
-        print(f"  JSON found at byte {blob.json_start}, "
-              f"{len(blob.raw) - (blob.json_end or 0)} trailing bytes")
+        if blob.xml is not None:
+            print("  JSON recovered from the VST3 host-state wrapper "
+                  "(VC2! magic + XML + IComponent base64)")
+        else:
+            print(f"  JSON found at byte {blob.json_start}, "
+                  f"{len(blob.raw) - (blob.json_end or 0)} trailing bytes")
         print(f"  top-level keys: {keys}")
         if blob.holds_vital_json:
             print("  => route 'state' AVAILABLE — presets can be injected wholesale")
@@ -154,7 +158,7 @@ def _apply(host: VitalHost, preset: Preset, route: str, out: str, *, quiet: bool
     if route == "state":
         scratch = Path(out) / "_state"
         blob = host.dump_state(scratch / "current.bin")
-        if blob.json_start is None:
+        if not blob.injectable:
             raise RenderError(
                 "route 'state' is unavailable: no JSON found in the plugin state. "
                 "Run 'probe' first, then use --route params."
