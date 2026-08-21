@@ -107,6 +107,37 @@ personal data is what makes it good.
 
 ---
 
+## D6 — Piano mode is back in
+
+**Decided.** An earlier version of this plan had a piano mode. It dropped out
+when the project repivoted from transcription to sound design (D0) and went
+unmentioned in that rewrite — an omission, not a deliberate cut. It's
+restored here, as its own mode alongside sound design, in the captain's own
+words:
+
+> I do still want that piano thing in where you suggest something that may
+> work and I play it and then I get to manipulate it how I want based on
+> whatever current MIDI file is taking over my piano.
+
+Concretely: the AI suggests a **specific candidate MIDI sequence** — a
+concrete thing to play, not an abstract scale or key constraint on the
+keyboard. That suggestion takes over what the piano's keys produce. The
+captain then manipulates it — timing, note density, note length.
+
+This is a separate mode from the sound-design flow (D0–D5), not a feature of
+it: no vocal query, no Vital preset, no retrieval. It doesn't depend on
+Phases 1–3's retrieval work and can be scheduled independently — see the
+[roadmap track](ROADMAP.md#piano-mode-track--independently-schedulable).
+
+**Open question, not resolved here:** whether "the captain's piano" is a MIDI
+controller/keyboard (in which case "taking over the keys" is a direct MIDI
+input override) or an acoustic instrument with separate MIDI capture (in
+which case it means something closer to overlaying or replacing what gets
+captured). This changes the mechanism significantly and is left open pending
+the captain's answer.
+
+---
+
 ## Prior art
 
 The relevant landscape is completely different from the transcription one, and

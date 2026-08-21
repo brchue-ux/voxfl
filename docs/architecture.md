@@ -1,5 +1,10 @@
 # Architecture
 
+This document covers the sound-design mode (mouth noise → Vital patch) only.
+Piano mode ([D6](decisions.md#d6--piano-mode-is-back-in)) is a separate mode
+with no vocal query, no Vital preset, and no retrieval — it has no pipeline
+here yet, pending the open MIDI-vs-acoustic question.
+
 ## The actual problem
 
 Your mouth cannot make a supersaw. When you go "bwaaaow" for a wobble bass,

@@ -10,6 +10,12 @@ it around with plain words and A/B choices until it's right.
 The same take also gives you the notes and rhythm, so "bwaaow bwaow bwaow"
 yields a patch *and* a pattern.
 
+A second, independent mode: **piano mode**. The AI suggests a concrete MIDI
+sequence to play, that sequence takes over your piano's keys, and you perform
+and reshape it live — timing, note density, note length. See
+[D6](docs/decisions.md#d6--piano-mode-is-back-in) and the
+[roadmap track](docs/ROADMAP.md#piano-mode-track--independently-schedulable).
+
 ## Status
 
 Design locked, not yet built. Phase 0 (prove the preset corpus loop) is next.

@@ -131,6 +131,30 @@ more forgiving form. The sound is the product.
 
 ---
 
+## Piano mode track  ·  independently schedulable
+
+A second, separate mode restored per [D6](decisions.md#d6--piano-mode-is-back-in).
+Not a feature of the sound-design flow above — no vocal query, no Vital
+preset, no retrieval — so it does not depend on Phases 1–3 and can be
+scheduled in any order relative to them.
+
+- [ ] Resolve the open question in D6: is the target a MIDI controller/
+      keyboard, or an acoustic piano with separate MIDI capture? The
+      mechanism differs significantly depending on the answer
+- [ ] AI suggests a concrete candidate MIDI sequence (not a scale/key
+      constraint) for the captain to play
+- [ ] That sequence takes over what the piano's keys produce
+- [ ] Manipulation of the live sequence: timing, note density, note length
+- [ ] Something demonstrable end to end, on whichever hardware D6 resolves to
+
+**Exit criterion:** the captain plays a suggested sequence live on his piano
+and reshapes it — timing, density, note length — in real time.
+
+**Not yet scoped:** session count. D6's open question needs an answer first;
+estimating before that is guessing at the wrong problem.
+
+---
+
 ## Definition of done for v1.0
 
 A Windows app where you make a noise, pick from five patches, say "brighter,
