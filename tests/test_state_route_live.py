@@ -17,12 +17,11 @@ Known gap on the from-source Linux build used to develop this fix: this test
 calls VitalHost.apply_params(), which calls DawDreamer's
 get_parameters_description() - a bulk parameter-metadata fetch that
 segfaults inside Vital's own ValueBridge::getText on that specific
-self-built binary only (see AGENTS.md). It ran clean against every other
-step (state dump/decode/inject/render); see build/e2e_verify.py in the PR
-that introduced this file for the same verification via a one-parameter-
-at-a-time workaround. Not expected to reproduce against a real Vital
-install, where get_parameters_description() already works (it's how the
-report's own probe measured 'params' route coverage).
+self-built binary only (see AGENTS.md). Every other step (state dump/
+decode/inject/render, and apply_params() itself called one parameter at a
+time as a workaround) ran clean. Not expected to reproduce against a real
+Vital install, where get_parameters_description() already works (it's how
+the report's own probe measured 'params' route coverage).
 """
 
 from __future__ import annotations
@@ -42,35 +41,56 @@ pytestmark = pytest.mark.skipif(
 
 
 def _mutate_preset_json(data: dict) -> dict:
-    """A preset that differs meaningfully from ``data``, without assuming an
-    exact schema: flip every long float array (wavetable frames, LFO shapes -
-    never reachable through the 'params' route) and nudge filter/level
-    scalars (reachable through either route, so this alone wouldn't
-    distinguish 'state' from 'params')."""
+    """A preset that differs *unmistakably* from ``data``, without assuming
+    an exact schema.
+
+    Two mistakes an earlier version of this function made, found by actually
+    listening to the render rather than trusting peak/rms alone (see the PR
+    that added this comment):
+
+    - A plain polarity flip (``-1 * x``) on wavetable/LFO sample arrays is
+      inaudible - human hearing doesn't perceive absolute phase - so it
+      didn't prove the data was really reaching the engine. This clips/
+      distorts the shape instead, which actually changes harmonic content.
+    - Changing a filter's cutoff/resonance is a no-op if the filter itself
+      is bypassed (``filter_1_on``/``filter_2_on`` were 0.0 in the real
+      default patch this was developed against) - so every filter the
+      patch has gets switched on here too, not just retuned. The cutoff
+      drop is deliberately modest (-10, not the captain's own "-80" test):
+      cutoff is in "note" units roughly aligned with MIDI pitch, and an
+      80-unit drop undercuts render_note()'s default note (48) entirely,
+      collapsing the sustained tone to near-silence rather than muffling
+      it - dramatic in a way that looks like a bug, not a preset change.
+    """
     mutated = copy.deepcopy(data)
+    settings = mutated.get("settings", mutated)
+
+    for key in list(settings) if isinstance(settings, dict) else []:
+        if key.endswith("_on") and f"{key[:-3]}_cutoff" in settings:
+            base = key[:-3]
+            settings[key] = 1.0
+            settings[f"{base}_cutoff"] = max(0.0, float(settings[f"{base}_cutoff"]) - 10.0)
+            if f"{base}_resonance" in settings:
+                settings[f"{base}_resonance"] = min(1.0, float(settings[f"{base}_resonance"]) + 0.3)
 
     def walk(node):
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if isinstance(value, (dict, list)):
-                    walk(value)
-                elif isinstance(value, (int, float)) and not isinstance(value, bool):
-                    lowered = key.lower()
-                    if "cutoff" in lowered or "resonance" in lowered or "level" in lowered:
-                        node[key] = min(1.0, max(0.0, float(value) * 0.3 + 0.5))
-        elif isinstance(node, list):
+        if isinstance(node, list):
             is_float_array = node and all(
                 isinstance(x, (int, float)) and not isinstance(x, bool) for x in node
             )
             if is_float_array and len(node) > 32:
                 for i, x in enumerate(node):
-                    node[i] = -1.0 * float(x)
+                    node[i] = max(-1.0, min(1.0, float(x) * 6.0))
             else:
                 for item in node:
                     if isinstance(item, (dict, list)):
                         walk(item)
+        elif isinstance(node, dict):
+            for value in node.values():
+                if isinstance(value, (dict, list)):
+                    walk(value)
 
-    walk(mutated.get("settings", mutated))
+    walk(settings)
     mutated["preset_name"] = f"{mutated.get('preset_name', 'preset')} (voxfl state-route check)"
     return mutated
 

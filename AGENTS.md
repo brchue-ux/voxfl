@@ -54,9 +54,40 @@ two things aren't obvious:
   GCC 13 libstdc++, isolated to this one call — not reproduced against the captain's real Vital,
   and not a bug in this repo's code. `build/e2e_verify.py`'s `safe_apply_params` shows the
   one-at-a-time workaround if this needs revisiting.
-- Output lands at `plugin/builds/linux_vst/build/Vital.vst3/Contents/<arch>-linux/Vital.so`
+- Output lands at `plugin/builds/linux_vst/build/Vial.vst3/Contents/<arch>-linux/Vial.so`
   inside a real `.vst3` bundle directory — point `voxfl.render.VitalHost`/`--plugin` at the
-  bundle directory, not the inner `.so`.
+  bundle directory, not the inner `.so`. It's genuinely named `Vial`, not `Vital` — the
+  README's "no use of the Vital/Tytel name or branding" restriction on from-source builds, not
+  a typo.
+
+## The 'params' route must not feed raw preset values into set_parameter()
+
+`DawDreamer`'s `set_parameter`/`get_parameter` operate on VST3 host-automation values, which are
+**always normalised to `[0, 1]`** — a hard VST3 spec fact, confirmed via `get_parameter_range()`.
+Vital's own preset JSON (`Preset.params()`) stores many `settings` values in a real, per-parameter
+unit instead: a real dumped default patch has `"volume": 5473.04`, `"filter_1_cutoff": 60.0` — not
+fractions. `VitalHost.apply_params()` used to call `set_parameter(idx, float(raw_value))` directly;
+for any value outside `[0, 1]` this silently clamps to 0 or 1 (e.g. that `volume` slams a host
+fader to max), and if the clamped parameter has its own de-zip smoothing, the render captures a
+multi-second linear ramp toward the wrong target followed by an abrupt cutoff at note-off — audible,
+and easy to mistake for a rendering bug rather than a value-domain bug. Fixed by `_looks_normalised()`
+gating `apply_params()`: skip (into `missed`) rather than guess when a value falls outside `[0, 1]`.
+This can only rule out the *impossible* cases — a value that happens to land in `[0, 1]` (levels,
+mix knobs, several already are) isn't proven correct, just not provably wrong.
+
+## Vital's `filter_N_cutoff` is a "note" unit, and the default patch's filters are OFF
+
+A real dumped default patch has `filter_1_on = filter_2_on = 0.0` — both filters bypassed — so
+changing cutoff/resonance alone is inaudible; a demo preset needs to flip the matching `_on` flag
+too. Cutoff itself is stored in a unit that tracks roughly with MIDI note number, not Hz or `[0,1]`:
+`render_note()`'s default note is 48, and a cutoff at or below ~48 in that unit blocks the note's
+own fundamental, collapsing a *held* note to near-silence rather than "muffled" (confirmed with a
+cutoff-delta sweep — closing further than ~10-12 units below this patch's default of 60 drops
+sustained energy off a cliff). A ~10-unit drop with the filter forced on and resonance boosted
+lands just above the fundamental: dramatic and clearly audible without collapsing to silence.
+Separately, a plain polarity flip on a wavetable/LFO sample array (`-1 * x`) is inaudible — hearing
+doesn't perceive absolute phase — so proving injected wavetable/LFO data actually changes the sound
+needs real waveshaping (e.g. gain-and-clip), not a sign flip.
 
 ## Maintaining this file
 

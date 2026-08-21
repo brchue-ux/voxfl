@@ -353,7 +353,11 @@ class VitalHost:
             if idx is None:
                 missed.append(key)
                 continue
-            if self.synth.set_parameter(idx, float(value)):
+            value = float(value)
+            if not _looks_normalised(value):
+                missed.append(key)
+                continue
+            if self.synth.set_parameter(idx, value):
                 applied += 1
             else:
                 missed.append(key)
@@ -384,6 +388,22 @@ class VitalHost:
 
 def _normalise(name: str) -> str:
     return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def _looks_normalised(value: float) -> bool:
+    """Host automation parameters (what set_parameter/get_parameter operate
+    on) are always normalised to [0, 1] — a VST3 convention, not a Vital one.
+    Vital's own preset JSON stores many ``settings`` values in a raw,
+    per-parameter unit instead (note numbers for cutoffs, seconds for
+    envelope times, raw gain for volume — e.g. a real dumped default patch
+    has ``"volume": 5473.04``, ``"filter_1_cutoff": 60.0``). Feeding one of
+    those straight into set_parameter() isn't a risky guess, it's simply
+    wrong, and silently clamps to 0 or 1 — a raw volume of ~5473 slams a
+    host fader to max. This can only rule out the impossible cases; a value
+    that happens to already sit in [0, 1] (as many do — levels, mixes,
+    resonance) isn't guaranteed correct, just not provably wrong.
+    """
+    return 0.0 <= value <= 1.0
 
 
 def write_wav(path: str | Path, audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> Path:
