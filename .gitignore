@@ -36,3 +36,6 @@ scratch/
 # Phase 0 output
 phase0_out/
 *.vstpreset
+
+# ...but committed verification samples are deliberate, not scratch.
+!docs/phase0-samples/*.wav

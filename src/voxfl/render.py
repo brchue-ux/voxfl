@@ -7,9 +7,15 @@ DawDreamer can load ``.fxp`` and ``.vstpreset`` files, neither of which Vital
 uses. So there are three candidate routes, and ``probe`` exists to find out
 which of them actually work on your machine:
 
-1. ``state``  — Vital's plugin state is very likely the preset JSON itself.
-                If so, a state file can be rebuilt around any preset's JSON.
-                Preserves everything. This is the hypothesis worth testing.
+1. ``state``  — Vital's plugin state *is* the preset JSON — confirmed at
+                Vital's own source (``SynthPlugin::getStateInformation``).
+                DawDreamer's save_state/load_state pass VST3 host-state bytes
+                straight through, so what actually reaches Python is JUCE's
+                own generic VST3 host-state wrapper around that JSON (see
+                ``parse_state`` below), not the JSON itself. Once unwrapped,
+                a state file can be rebuilt around any preset's JSON and
+                preserves everything: wavetables, modulation routing, LFO
+                shapes.
 2. ``params`` — match preset JSON keys to host parameter names and set them
                 one by one. Definitely works, but is **lossy**: wavetables,
                 modulation routings and LFO shapes are not host parameters.
@@ -20,6 +26,7 @@ which of them actually work on your machine:
 from __future__ import annotations
 
 import json
+import re
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,20 +57,178 @@ def _require_dawdreamer():
     return dawdreamer
 
 
+# --------------------------------------------------------- JUCE VST3 wrapper
+#
+# DawDreamer's save_state/load_state/get_state/set_state pass VST3 "host
+# state" bytes straight through to/from the plugin, unmodified (DawDreamer's
+# PluginProcessor::loadStateInformation/saveStateInformation call
+# AudioPluginInstance::setStateInformation/getStateInformation directly).
+# That state is JUCE's own generic VST3 host-state format, not Vital's raw
+# plugin state:
+#
+#   "VC2!" magic (4 bytes) + XML length (4 bytes, little-endian)
+#   + XML text: <VST3PluginState><IComponent>...</IComponent>
+#               <IEditController>...</IEditController></VST3PluginState>
+#   + one trailing NUL byte
+#
+# (AudioProcessor::copyXmlToBinary/getXmlFromBinary — magic 0x21324356 LE is
+# the bytes "VC2!"). The <IComponent> element's text, base64-encoded with
+# JUCE's own nonstandard alphabet and LSB-first bit packing
+# (MemoryBlock::toBase64Encoding/fromBase64Encoding — not RFC 4648), decodes
+# to Vital's JSON preset as a self-delimiting *prefix*, followed by a NUL
+# terminator and then JUCE's own plugin-side "JUCEPrivateData" bypass-state
+# chunk (confirmed against a real dumped default patch — not in any of the
+# primary sources this fix is otherwise grounded in, so parse this part
+# defensively). <IComponent> is what drives the audio engine;
+# <IEditController> is just a parameter mirror JUCE resets from <IComponent>
+# on load, so it can be carried through unmodified.
+
+VC2_MAGIC = b"VC2!"
+
+# Index 0 is '.', index 63 is '+' — no '/', no '=' padding.
+_JUCE_B64_ALPHABET = ".ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+"
+_JUCE_B64_DECODE = {ch: i for i, ch in enumerate(_JUCE_B64_ALPHABET)}
+
+_ICOMPONENT_RE = re.compile(r"<IComponent>(.*?)</IComponent>", re.DOTALL)
+
+
+def _get_bit_range(data: bytes, bit_start: int, num_bits: int) -> int:
+    """Port of JUCE's MemoryBlock::getBitRange (LSB-first bit extraction)."""
+    res = 0
+    byte, offset, bits_so_far, size = bit_start >> 3, bit_start & 7, 0, len(data)
+    while num_bits > 0 and byte < size:
+        bits_this_time = min(num_bits, 8 - offset)
+        mask = (0xFF >> (8 - bits_this_time)) << offset
+        res |= ((data[byte] & mask) >> offset) << bits_so_far
+        bits_so_far += bits_this_time
+        num_bits -= bits_this_time
+        byte += 1
+        offset = 0
+    return res
+
+
+def _set_bit_range(buf: bytearray, bit_start: int, num_bits: int, value: int) -> None:
+    """Port of JUCE's MemoryBlock::setBitRange (LSB-first bit packing)."""
+    byte, offset = bit_start >> 3, bit_start & 7
+    size = len(buf)
+    while num_bits > 0 and byte < size:
+        bits_this_time = min(num_bits, 8 - offset)
+        local_mask = ((1 << bits_this_time) - 1) << offset
+        bits = (value & ((1 << bits_this_time) - 1)) << offset
+        buf[byte] = (buf[byte] & (~local_mask & 0xFF)) | bits
+        value >>= bits_this_time
+        num_bits -= bits_this_time
+        byte += 1
+        offset = 0
+
+
+def juce_base64_encode(data: bytes) -> str:
+    """JUCE's MemoryBlock::toBase64Encoding: nonstandard alphabet, LSB-first
+    6-bit packing, and a "<decoded-byte-count>." length prefix."""
+    num_chars = (len(data) * 8 + 5) // 6
+    chars = (_JUCE_B64_ALPHABET[_get_bit_range(data, i * 6, 6)] for i in range(num_chars))
+    return f"{len(data)}.{''.join(chars)}"
+
+
+def juce_base64_decode(encoded: str) -> bytes:
+    """Inverse of juce_base64_encode (JUCE's MemoryBlock::fromBase64Encoding).
+
+    Matches JUCE's behaviour of silently skipping characters outside the
+    alphabet rather than erroring — never triggered by real Vital data, since
+    the alphabet contains none of XML's reserved characters.
+    """
+    dot = encoded.find(".")
+    if dot == -1:
+        raise RenderError("not JUCE base64: missing '<len>.' length prefix")
+    size = int(encoded[:dot])
+    buf = bytearray(size)
+    pos = 0
+    for ch in encoded[dot + 1 :]:
+        value = _JUCE_B64_DECODE.get(ch)
+        if value is None:
+            continue
+        _set_bit_range(buf, pos * 6, 6, value)
+        pos += 1
+    return bytes(buf)
+
+
+def _unwrap_vst3_state(raw: bytes) -> str | None:
+    """Verify the VC2! magic + length header and return the XML text."""
+    if raw[:4] != VC2_MAGIC or len(raw) < 8:
+        return None
+    xml_length = int.from_bytes(raw[4:8], "little")
+    xml_bytes = raw[8 : 8 + xml_length]
+    if len(xml_bytes) != xml_length:
+        return None
+    try:
+        return xml_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _wrap_vst3_state(xml: str) -> bytes:
+    """Inverse of _unwrap_vst3_state: rebuild the VC2! magic+length+XML+NUL frame."""
+    xml_bytes = xml.encode("utf-8")
+    return VC2_MAGIC + len(xml_bytes).to_bytes(4, "little") + xml_bytes + b"\x00"
+
+
+def _decode_icomponent(b64_text: str) -> tuple[dict[str, Any] | None, bytes]:
+    """Decode an <IComponent> element's base64 text into (payload, trailer).
+
+    The decoded bytes are Vital's JSON preset — a self-delimiting *prefix*,
+    not the whole thing — followed by a single NUL terminator and then
+    whatever JUCE's plugin-side VST3 wrapper appended after that: a
+    "JUCEPrivateData" bypass-state chunk, confirmed against a real dumped
+    default patch (not documented anywhere in the primary sources the
+    parse_state fix is otherwise grounded in). It's opaque to us, so it's
+    returned verbatim as ``trailer`` for rebuild_with() to carry through
+    unexamined rather than reconstructing or dropping it.
+    """
+    try:
+        decoded = juce_base64_decode(b64_text)
+    except RenderError:
+        return None, b""
+    try:
+        text = decoded.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        text = decoded.decode("utf-8", errors="ignore")
+    try:
+        candidate, consumed = json.JSONDecoder().raw_decode(text)
+    except json.JSONDecodeError:
+        return None, b""
+    if not isinstance(candidate, dict):
+        return None, b""
+    json_end = len(text[:consumed].encode("utf-8"))
+    rest = decoded[json_end:]
+    trailer = rest[1:] if rest[:1] == b"\x00" else rest
+    return candidate, trailer
+
+
 # --------------------------------------------------------------- state blob
 
 @dataclass
 class StateBlob:
-    """A DawDreamer state file, split into a prefix and an embedded JSON body."""
+    """A DawDreamer state file: JUCE's VST3 host-state wrapper (VC2! + XML +
+    IComponent base64) around Vital's JSON plugin state — or, as a fallback
+    for state blobs that are not VST3-wrapped, bare JSON found in the bytes.
+    """
 
     raw: bytes
-    json_start: int | None
-    json_end: int | None
-    payload: dict[str, Any] | None
+    xml: str | None = None
+    payload: dict[str, Any] | None = None
+    json_start: int | None = None
+    json_end: int | None = None
 
     @property
     def holds_vital_json(self) -> bool:
         return bool(self.payload) and any(k in self.payload for k in VITAL_MARKERS)
+
+    @property
+    def injectable(self) -> bool:
+        """Whether rebuild_with() has somewhere to splice a new preset's JSON."""
+        if self.xml is not None:
+            return _ICOMPONENT_RE.search(self.xml) is not None
+        return self.json_start is not None
 
     @property
     def prefix(self) -> bytes:
@@ -74,7 +239,19 @@ class StateBlob:
         return self.raw[self.json_end :] if self.json_end is not None else b""
 
     def rebuild_with(self, preset: Preset) -> bytes:
-        """Swap in a different preset's JSON, keeping any surrounding bytes."""
+        """Swap in a different preset's JSON, keeping everything else — the
+        IEditController block, XML formatting, VC2! frame, and (see below)
+        JUCE's own trailer inside IComponent — as captured."""
+        if self.xml is not None:
+            match = _ICOMPONENT_RE.search(self.xml)
+            if match is None:
+                raise RenderError("this state file's XML has no <IComponent> element to replace")
+            _, trailer = _decode_icomponent(match.group(1))
+            new_json = json.dumps(preset.data, separators=(",", ":")).encode("utf-8")
+            body = new_json + b"\x00" + trailer
+            new_b64 = juce_base64_encode(body)
+            new_xml = self.xml[: match.start(1)] + new_b64 + self.xml[match.end(1) :]
+            return _wrap_vst3_state(new_xml)
         if self.json_start is None:
             raise RenderError("this state file has no embedded JSON to replace")
         body = json.dumps(preset.data, separators=(",", ":")).encode("utf-8")
@@ -82,10 +259,30 @@ class StateBlob:
 
 
 def parse_state(raw: bytes) -> StateBlob:
-    """Find and parse a JSON object embedded anywhere in a state file."""
+    """Recover Vital's preset JSON from a DawDreamer state dump.
+
+    Peels back JUCE's VST3 host-state wrapper (VC2! magic + XML + IComponent
+    base64 — see module notes above) first, since that's the real shape of
+    every DawDreamer state dump for a JUCE VST3 plugin. Falls back to a bare
+    ``{`` scan for state blobs that turn out not to be VST3-wrapped.
+    """
+    xml = _unwrap_vst3_state(raw)
+    if xml is not None:
+        match = _ICOMPONENT_RE.search(xml)
+        if match is None:
+            return StateBlob(raw, xml=xml)
+        payload, _trailer = _decode_icomponent(match.group(1))
+        return StateBlob(raw, xml=xml, payload=payload)
+
+    return _parse_bare_json(raw)
+
+
+def _parse_bare_json(raw: bytes) -> StateBlob:
+    """Legacy fallback: find and parse a JSON object embedded anywhere in a
+    non-VST3-wrapped blob."""
     start = raw.find(b"{")
     if start == -1:
-        return StateBlob(raw, None, None, None)
+        return StateBlob(raw)
 
     decoder = json.JSONDecoder()
     try:
@@ -97,13 +294,13 @@ def parse_state(raw: bytes) -> StateBlob:
     try:
         payload, consumed = decoder.raw_decode(text)
     except json.JSONDecodeError:
-        return StateBlob(raw, None, None, None)
+        return StateBlob(raw)
 
     if not isinstance(payload, dict):
-        return StateBlob(raw, None, None, None)
+        return StateBlob(raw)
 
     end = start + len(text[:consumed].encode("utf-8"))
-    return StateBlob(raw, start, end, payload)
+    return StateBlob(raw, json_start=start, json_end=end, payload=payload)
 
 
 # ------------------------------------------------------------------- engine
@@ -156,7 +353,11 @@ class VitalHost:
             if idx is None:
                 missed.append(key)
                 continue
-            if self.synth.set_parameter(idx, float(value)):
+            value = float(value)
+            if not _looks_normalised(value):
+                missed.append(key)
+                continue
+            if self.synth.set_parameter(idx, value):
                 applied += 1
             else:
                 missed.append(key)
@@ -187,6 +388,22 @@ class VitalHost:
 
 def _normalise(name: str) -> str:
     return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def _looks_normalised(value: float) -> bool:
+    """Host automation parameters (what set_parameter/get_parameter operate
+    on) are always normalised to [0, 1] — a VST3 convention, not a Vital one.
+    Vital's own preset JSON stores many ``settings`` values in a raw,
+    per-parameter unit instead (note numbers for cutoffs, seconds for
+    envelope times, raw gain for volume — e.g. a real dumped default patch
+    has ``"volume": 5473.04``, ``"filter_1_cutoff": 60.0``). Feeding one of
+    those straight into set_parameter() isn't a risky guess, it's simply
+    wrong, and silently clamps to 0 or 1 — a raw volume of ~5473 slams a
+    host fader to max. This can only rule out the impossible cases; a value
+    that happens to already sit in [0, 1] (as many do — levels, mixes,
+    resonance) isn't guaranteed correct, just not provably wrong.
+    """
+    return 0.0 <= value <= 1.0
 
 
 def write_wav(path: str | Path, audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> Path:

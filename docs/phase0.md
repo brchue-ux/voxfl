@@ -128,12 +128,21 @@ long 5,000 would take.
 
 ## What's verified and what isn't
 
-Verified here: the preset reader, writer, differ and nudger (22 tests, run
-`python -m pytest tests/ -q`), and the DawDreamer render-to-wav chain against
-a built-in oscillator.
+Verified here: the preset reader, writer, differ and nudger, the DawDreamer
+render-to-wav chain against a built-in oscillator, and — since the
+`fm/voxfl-vital-state-fix` fix — the `state` route's byte format itself (46
+unit tests, run `python -m pytest tests/ -q`, no Vital/DawDreamer needed) plus
+a real end-to-end run against a from-source Linux Vital build: dumping,
+decoding, injecting, and rendering all confirmed working, with the `state`
+route audibly differing from both the default patch and the lossy `params`
+route. See `render.py`'s "JUCE VST3 wrapper" section and `AGENTS.md` for how
+the wrapper format actually works and what building Vital from source
+involves.
 
-**Not verified:** anything involving Vital itself. This was developed on Linux
-with no Vital installed and no way to listen to the output. The `state` route
-in particular is an untested hypothesis. Expect the first run to need
-adjustment, and treat surprises as the point of the exercise rather than as
-bugs.
+**Not verified:** the captain's own real Vital install on Windows — the
+from-source Linux build differs in ways documented in `AGENTS.md` (no
+Firebase auth wired up, one DawDreamer bulk-parameter-metadata call segfaults
+on that specific build only) that aren't expected to reproduce there, but
+haven't been confirmed either way. `tests/test_state_route_live.py` is the
+ready-made check to run against it (`VOXFL_VITAL_PLUGIN=... pytest
+tests/test_state_route_live.py -v`).
